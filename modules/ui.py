@@ -882,30 +882,29 @@ def create_webcam_preview(camera_index: int):
     frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
     source_image = None
     prev_time = time.time()
+    fps_update_interval = 0.5
     frame_count = 0
     fps = 0
-    is_preview_active = True  # Flag to control the loop
 
-    def update_frame():
-        nonlocal source_image, prev_time, frame_count, fps, is_preview_active
-
-        if not is_preview_active:
-            cap.release()
-            PREVIEW.withdraw()
-            return
-
+    while True:
         ret, frame = cap.read()
         if not ret:
-            ROOT.after(1, update_frame)  # Retry reading frame
-            return
+            break
 
         temp_frame = frame.copy()
 
         if modules.globals.live_mirror:
             temp_frame = cv2.flip(temp_frame, 1)
 
-        # Always fit to preview window size
-        temp_frame = fit_image_to_size(temp_frame, PREVIEW.winfo_width(), PREVIEW.winfo_height())
+        if modules.globals.live_resizable:
+            temp_frame = fit_image_to_size(
+                temp_frame, PREVIEW.winfo_width(), PREVIEW.winfo_height()
+            )
+
+        else:
+            temp_frame = fit_image_to_size(
+                temp_frame, PREVIEW.winfo_width(), PREVIEW.winfo_height()
+            )
 
         if not modules.globals.map_faces:
             if source_image is None and modules.globals.source_path:
@@ -929,7 +928,7 @@ def create_webcam_preview(camera_index: int):
         # Calculate and display FPS
         current_time = time.time()
         frame_count += 1
-        if current_time - prev_time >= 0.5:  # Update FPS every 0.5 seconds
+        if current_time - prev_time >= fps_update_interval:
             fps = frame_count / (current_time - prev_time)
             frame_count = 0
             prev_time = current_time
@@ -947,17 +946,18 @@ def create_webcam_preview(camera_index: int):
 
         image = cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
-        # No need for ImageOps.contain as fit_image_to_size already handles it
-        image = ctk.CTkImage(image, size=(temp_frame.shape[1], temp_frame.shape[0]))
+        image = ImageOps.contain(
+            image, (temp_frame.shape[1], temp_frame.shape[0]), Image.LANCZOS
+        )
+        image = ctk.CTkImage(image, size=image.size)
         preview_label.configure(image=image)
+        ROOT.update()
 
         if PREVIEW.state() == "withdrawn":
-            is_preview_active = False
+            break
 
-        ROOT.after(10, update_frame)  # Schedule the next update
-
-    # Start the update loop
-    update_frame()
+    cap.release()
+    PREVIEW.withdraw()
 
 
 def create_source_target_popup_for_webcam(
